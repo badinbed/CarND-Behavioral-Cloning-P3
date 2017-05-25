@@ -3,18 +3,23 @@ import csv
 import cv2
 import math
 import argparse
+import pickle
 import numpy as np
 
 from sklearn.utils import shuffle
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 
-def load_samples(folder):
+
+def load_samples(folders):
 	samples = []
-	with open('rec/driving_log.csv') as csvfile:
-		reader = csv.reader(csvfile)
-		for line in reader:
-			samples.append(line)
+	for folder in folders:
+		with open(os.path.join(folder, 'driving_log.csv')) as csvfile:
+			reader = csv.reader(csvfile)
+			for line in reader:
+				for indx in range(3):
+					line[indx] = os.path.join(folder, 'IMG', os.path.basename(line[indx]))
+				samples.append(line)
 	return samples
 	
 			
@@ -47,12 +52,13 @@ class SampleGenerator:
 			
 	def augment(self, img, angle):
 		img = np.asarray(img)
+
 		if self.flip_horizontal and np.random.random() < 0.5:
 			img = self.flip(img)
 			angle = -angle
 			
 		if self.shift_vertically:
-			rows = np.random.uniform(-self.shift_vertically, self.shift_vertically)
+			rows = round(np.random.uniform(-self.shift_vertically, self.shift_vertically))
 			img = self.shift(img, rows)
 			
 		return img, angle
@@ -68,16 +74,16 @@ class SampleGenerator:
 				angles = []
 				for batch_sample in batch_samples:
 					center_angle = float(batch_sample[3])
-					center_image = cv2.imread(os.path.relpath(batch_sample[0]))
+					center_image = cv2.imread(batch_sample[0])
 					aug_image, aug_angle = self.augment(center_image, center_angle)
 					images.append(aug_image)
 					angles.append(aug_angle)
 					
 					if self.use_side_cams:
-						left_image, left_angle = self.augment(cv2.imread(os.path.relpath(batch_sample[1])), center_angle + self.angle_correction)
+						left_image, left_angle = self.augment(cv2.imread(batch_sample[1]), center_angle + self.angle_correction)
 						images.append(left_image)
 						angles.append(left_angle)
-						right_image, right_angle = self.augment(cv2.imread(os.path.relpath(batch_sample[2])), center_angle - self.angle_correction)
+						right_image, right_angle = self.augment(cv2.imread(batch_sample[2]), center_angle - self.angle_correction)
 						images.append(right_image)
 						angles.append(right_angle)
 						
@@ -154,35 +160,23 @@ def create_nvidia_model():
 	model.add(Dense(1))
 	model.compile(loss='mse', optimizer='adam')
 	return model
-    
-
-### print the keys contained in the history object
-#print(history_object)
-
-### plot the training and validation loss for each epoch
-#plt.plot(history_object.history['loss'])
-#plt.plot(history_object.history['val_loss'])
-#plt.title('model mean squared error loss')
-#plt.ylabel('mean squared error loss')
-#plt.xlabel('epoch')
-#plt.legend(['training set', 'validation set'], loc='upper right')
-#plt.show()
+ 
 
 def main():
 	# command line arguments
 	parser= argparse.ArgumentParser()
-	parser.add_argument('--sample_folder')
-	parser.add_argument('--use_side_cams', default=True, action='store_true')
-	parser.add_argument('--angle_correction', default=0.2, type=float)
+	parser.add_argument('-sf', '--sample_folder', nargs='+')
+	parser.add_argument('-cam', '--use_side_cams', default=False, action='store_true')
+	parser.add_argument('-ac', '--angle_correction', default=0.2, type=float)
 	parser.add_argument('--flip', default=False, action='store_true')
 	parser.add_argument('--shift', default=0, type=int)
 	parser.add_argument('--epochs', default=5, type=int)
-	parser.add_argument('--batch_size', default=30, type=int)
-	parser.add_argument('--sample_size', default=None, type=int)
-	parser.add_argument('--validation_size', default=0.2, type=float)
-	parser.add_argument('--load_model', default=None)
-	parser.add_argument('--save_model', default='model.h5')
-	parser.add_argument('cmd', choices=['train', 'eval', 'test_augment'])
+	parser.add_argument('-bs', '--batch_size', default=30, type=int)
+	parser.add_argument('-ss', '--sample_size', default=None, type=int)
+	parser.add_argument('-vs', '--validation_size', default=0.2, type=float)
+	parser.add_argument('-lm', '--load_model', default=None)
+	parser.add_argument('-sm', '--save_model', default='model.h5')
+	parser.add_argument('--action', default='train', choices=['train', 'eval', 'test_augment', 'plot_history'])
 
 	args =  parser.parse_args()
     
@@ -198,15 +192,19 @@ def main():
 		# load model or create a new one if none specified
 		if not args.load_model:
 			model = create_nvidia_model()
+			hist = {'loss':[], 'val_loss':[] , 'epochs':[]}
 			print('New model based on nvidia compiled using mse loss and adam optimizer')
+			model.summary()
 		else:
-			model = keras.models.load_model(args.load_model)		
+			model = keras.models.load_model(args.load_model)
+			filename, extension = os.path.splitext(args.load_model)
+			hist = pickle.load(open(filename + '_hist.p', 'rb'))
 			print('Loaded model:', args.load_model)
 			model.summary()
 
 			
 		# if we trained the model we want to save the result
-		if args.cmd == 'train':	
+		if args.action == 'train':	
 			train_samples, validation_samples = train_test_split(samples, test_size=args.validation_size)
 			train_gen = SampleGenerator(train_samples, 
 									batch_size=args.batch_size, 
@@ -222,16 +220,26 @@ def main():
 											
 		
 			print("Training model: epochs={}, batch_size={} steps_per_epoch={}, validation_steps={}".format(args.epochs, train_gen.batch_size, train_gen.num_steps, valid_gen.num_steps))			
-			history_object = model.fit_generator(train_gen.generate(), 
+			hist_object = model.fit_generator(train_gen.generate(), 
 												steps_per_epoch = train_gen.num_steps, 
 												validation_data = valid_gen.generate(), 
 												validation_steps = valid_gen.num_steps, 
 												epochs = args.epochs, 
 												verbose=1)
+
+			hist['loss'] += hist_object.history['loss']
+			hist['val_loss'] += hist_object.history['val_loss']
+			hist['epochs'].append(args.epochs)
+			hist['sources'].append(args.sample_folder)
 			
 			print('Saving model to:', args.save_model)
 			model.save(args.save_model)
-		elif args.cmd == 'eval':
+			hist_file, extension = os.path.splitext(args.save_model)
+			hist_file += '_hist.p'
+			print('Saving history to:', hist_file)
+			pickle.dump(hist, open(hist_file, 'wb'))
+				
+		elif args.action == 'eval':
 			eval_gen = SampleGenerator(samples, 
 									batch_size = args.batch_size, 
 									use_side_cams = args.use_side_cams, 
@@ -240,7 +248,7 @@ def main():
 			
 			loss = model.evaluate_generator(eval_gen.generate(), steps = eval_gen.num_steps)
 			print('Average loss:', loss / len(samples)) # sucks that evaluate_generator doesnt have verbosity
-		elif args.cmd == 'test_augment':
+		elif args.action == 'test_augment':
 			gen = SampleGenerator(samples,
 						flip_horizontal = args.flip,
 						shift_vertically = args.shift)
@@ -249,6 +257,21 @@ def main():
 			for i in range(len(images)):
 				print("test_augment-" + str(i) + ".jpg")
 				cv2.imwrite("test_augment-" + str(i) + ".jpg", images[i])
+		elif args.action == 'plot_history':
+			x = list(range(1, len(hist['loss']) + 1))
+			plt.plot(x, hist['loss'], '#0072bd')
+			plt.plot(x, hist['val_loss'], '#d95319')
+			vl = 0.5
+			for v in hist['epochs'][:-1]:
+				vl += v
+				plt.axvline(vl, linestyle='--', lw=0.5, color='#edb120')
+				
+			plt.xticks(x)
+			plt.title('model mean squared error loss')
+			plt.ylabel('mean squared error loss')
+			plt.xlabel('epoch')
+			plt.legend(['training set', 'validation set', 'sessions'], loc='upper right')
+			plt.show()
 	
 if __name__ == "__main__":
     main()
