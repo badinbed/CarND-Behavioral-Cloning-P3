@@ -182,17 +182,17 @@ def main():
     
 	with keras.backend.get_session():
 		# load samples for training or evaluation
-		samples = shuffle(load_samples(args.sample_folder), n_samples=args.sample_size)
-		if len(samples) == 0:
-			print('No samples found in:', args.sample_folder)
-			return 0
+		if args.sample_folder:
+			samples = load_samples(args.sample_folder)
+			if len(samples) > 0:
+				samples = shuffle(samples, n_samples=args.sample_size)
+				print("Samples loaded from {}: {}".format(args.sample_folder, len(samples)))
 			
-		print("Samples loaded from {}: {}".format(args.sample_folder, len(samples)))
 
 		# load model or create a new one if none specified
 		if not args.load_model:
 			model = create_nvidia_model()
-			hist = {'loss':[], 'val_loss':[] , 'epochs':[]}
+			hist = {'loss':[], 'val_loss':[] , 'epochs':[], 'sources':[]}
 			print('New model based on nvidia compiled using mse loss and adam optimizer')
 			model.summary()
 		else:
