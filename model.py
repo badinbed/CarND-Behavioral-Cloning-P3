@@ -11,34 +11,31 @@ from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 
 
-def load_samples(folders):
+def load_samples(folders, cams, angle_correction):
+
 	samples = []
-	for folder in folders:
+	cams += ['111'] * max(0, len(folders) - len(cams))
+	cor = [0, angle_correction, -angle_correction]
+	for f_idx, folder in enumerate(folders):
 		with open(os.path.join(folder, 'driving_log.csv')) as csvfile:
 			reader = csv.reader(csvfile)
+			n_samples = len(samples)
 			for line in reader:
-				for indx in range(3):
-					line[indx] = os.path.join(folder, 'IMG', os.path.basename(line[indx]))
-				samples.append(line)
+				for l_idx in range(3):
+					if int(cams[f_idx], 2) & 1<<((l_idx+1)%3):
+						samples.append((os.path.join(folder, 'IMG', os.path.basename(line[l_idx])), float(line[3]) + cor[l_idx]))
+			print("{} samples loaded from {} with cams={} and angle_correction={}".format(len(samples) - n_samples, folder, cams[f_idx], angle_correction))
+			
 	return samples
 	
 			
 class SampleGenerator:
-	def __init__(self, samples, batch_size=32, use_side_cams = False, angle_correction = 0.2, flip_horizontal=False, shift_vertically = 0):
-		n_cam_imgs = 3
+	def __init__(self, samples, batch_size=32, flip_horizontal=False, shift_vertically = 0):
 		self.samples = samples
-		self.use_side_cams = use_side_cams
-		self.angle_correction = angle_correction
-		self.flip_horizontal = flip_horizontal
-		self.shift_vertically = shift_vertically
-		
 		self.num_samples = len(samples)
 		self.batch_size = batch_size
-		if use_side_cams:
-			self.num_samples = self.num_samples * n_cam_imgs
-			self.batch_size = (self.batch_size // n_cam_imgs) * n_cam_imgs
-		
-		self.batch_size = min(self.batch_size, self.num_samples)
+		self.flip_horizontal = flip_horizontal
+		self.shift_vertically = shift_vertically	
 		self.num_steps = math.ceil(self.num_samples / self.batch_size)
 	
 	def flip(self, x):
@@ -67,25 +64,15 @@ class SampleGenerator:
 	def generate(self):
 		while 1: # Loop forever so the generator never terminates
 			shuffle(self.samples)
-			for offset in range(0, len(self.samples), self.batch_size):
+			for offset in range(0, self.num_samples, self.batch_size):
 				batch_samples = self.samples[offset:offset + self.batch_size]
 
 				images = []
 				angles = []
 				for batch_sample in batch_samples:
-					center_angle = float(batch_sample[3])
-					center_image = cv2.imread(batch_sample[0])
-					aug_image, aug_angle = self.augment(center_image, center_angle)
+					aug_image, aug_angle = self.augment(cv2.imread(batch_sample[0]), batch_sample[1])
 					images.append(aug_image)
 					angles.append(aug_angle)
-					
-					if self.use_side_cams:
-						left_image, left_angle = self.augment(cv2.imread(batch_sample[1]), center_angle + self.angle_correction)
-						images.append(left_image)
-						angles.append(left_angle)
-						right_image, right_angle = self.augment(cv2.imread(batch_sample[2]), center_angle - self.angle_correction)
-						images.append(right_image)
-						angles.append(right_angle)
 						
 
 				# trim image to only see section with road
@@ -166,28 +153,27 @@ def main():
 	# command line arguments
 	parser= argparse.ArgumentParser()
 	parser.add_argument('-sf', '--sample_folder', nargs='+')
-	parser.add_argument('-cam', '--use_side_cams', default=False, action='store_true')
-	parser.add_argument('-ac', '--angle_correction', default=0.2, type=float)
-	parser.add_argument('--flip', default=False, action='store_true')
-	parser.add_argument('--shift', default=0, type=int)
-	parser.add_argument('--epochs', default=5, type=int)
-	parser.add_argument('-bs', '--batch_size', default=30, type=int)
+	parser.add_argument('-cams', '--cam_mask', nargs='+')
+	parser.add_argument('-bs', '--batch_size', default=32, type=int)
 	parser.add_argument('-ss', '--sample_size', default=None, type=int)
 	parser.add_argument('-vs', '--validation_size', default=0.2, type=float)
+	parser.add_argument('-ac', '--angle_correction', default=0.2, type=float)
+	parser.add_argument('-fl', '--flip', default=False, action='store_true')
+	parser.add_argument('-sh', '--shift', default=0, type=int)
+	parser.add_argument('-e', '--epochs', default=5, type=int)
 	parser.add_argument('-lm', '--load_model', default=None)
 	parser.add_argument('-sm', '--save_model', default='model.h5')
-	parser.add_argument('--action', default='train', choices=['train', 'eval', 'test_augment', 'plot_history'])
+	parser.add_argument('-a', '--action', default='train', required=True, choices=['train', 'eval', 'test_augment', 'plot_history'])
 
 	args =  parser.parse_args()
-    
+	
 	with keras.backend.get_session():
 		# load samples for training or evaluation
 		if args.sample_folder:
-			samples = load_samples(args.sample_folder)
+			samples = load_samples(args.sample_folder, args.cam_mask, args.angle_correction)
 			if len(samples) > 0:
 				samples = shuffle(samples, n_samples=args.sample_size)
-				print("Samples loaded from {}: {}".format(args.sample_folder, len(samples)))
-			
+				
 
 		# load model or create a new one if none specified
 		if not args.load_model:
@@ -207,16 +193,12 @@ def main():
 		if args.action == 'train':	
 			train_samples, validation_samples = train_test_split(samples, test_size=args.validation_size)
 			train_gen = SampleGenerator(train_samples, 
-									batch_size=args.batch_size, 
-									use_side_cams = args.use_side_cams, 
-									angle_correction = args.angle_correction,
+									batch_size=args.batch_size,
 									flip_horizontal = args.flip,
 									shift_vertically = args.shift)
 		
 			valid_gen = SampleGenerator(validation_samples, 
-									batch_size=args.batch_size, 
-									use_side_cams = args.use_side_cams, 
-									angle_correction=args.angle_correction)	
+									batch_size=args.batch_size)	
 											
 		
 			print("Training model: epochs={}, batch_size={} steps_per_epoch={}, validation_steps={}".format(args.epochs, train_gen.batch_size, train_gen.num_steps, valid_gen.num_steps))			
@@ -241,9 +223,7 @@ def main():
 				
 		elif args.action == 'eval':
 			eval_gen = SampleGenerator(samples, 
-									batch_size = args.batch_size, 
-									use_side_cams = args.use_side_cams, 
-									angle_correction=args.angle_correction)
+									batch_size = args.batch_size)
 			print("Evaluating model: batch_size={} steps={}".format(eval_gen.batch_size, eval_gen.num_steps))			
 			
 			loss = model.evaluate_generator(eval_gen.generate(), steps = eval_gen.num_steps)
