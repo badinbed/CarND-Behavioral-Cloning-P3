@@ -77,16 +77,15 @@ class SampleGenerator:
 		while 1: # Loop forever so the generator never terminates
 			shuffle(self.samples)
 			epoch += 1
-			print('generator in epoch:', epoch)
+			discard = 1
 			for i in range(self.num_steps):
-				
 				images = []
 				angles = []
 				while len(images) < self.batch_size:
 
 				
 					sample = self.samples[np.random.randint(self.num_samples)]
-					while abs(sample[3]) < 0.1 and np.random.uniform() > 0.7:
+					while abs(sample[3]) < 0.1 and np.random.uniform() > discard / epoch:
 						sample = self.samples[np.random.randint(self.num_samples)]
 						
 					img_idx = np.random.randint(3) if self.use_side_cams else 0
@@ -99,10 +98,10 @@ class SampleGenerator:
 				
 
 					# trim image to only see section with road
-					X_train = np.asarray(images)
-					y_train = np.asarray(angles)
-					
-					yield X_train, y_train
+				X_train = np.asarray(images)
+				y_train = np.asarray(angles)
+				
+				yield X_train, y_train
 				
 				
 	def test_augmentation(self, img_file, angle):
@@ -181,8 +180,6 @@ def main():
 	parser.add_argument('-sf', '--sample_folder', nargs='+')
 	parser.add_argument('-cam', '--use_side_cams', default=False, action='store_true')
 	parser.add_argument('-ac', '--angle_correction', default=0.25, type=float)
-	parser.add_argument('-fl', '--flip', default=False, action='store_true')
-	parser.add_argument('-sh', '--shift', default=0, type=int)
 	parser.add_argument('-e', '--epochs', default=5, type=int)
 	parser.add_argument('-bs', '--batch_size', default=256, type=int)
 	parser.add_argument('-ss', '--sample_size', default=None, type=int)
