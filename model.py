@@ -77,7 +77,7 @@ class SampleGenerator:
 		while 1: # Loop forever so the generator never terminates
 			shuffle(self.samples)
 			epoch += 1
-			discard = 1
+			discard = 1 / epoch + 0.2
 			for i in range(self.num_steps):
 				images = []
 				angles = []
@@ -85,7 +85,7 @@ class SampleGenerator:
 
 				
 					sample = self.samples[np.random.randint(self.num_samples)]
-					while abs(sample[3]) < 0.1 and np.random.uniform() > discard / epoch:
+					while abs(sample[3]) < 0.1 and np.random.uniform() > discard:
 						sample = self.samples[np.random.randint(self.num_samples)]
 						
 					img_idx = np.random.randint(3) if self.use_side_cams else 0
@@ -202,6 +202,7 @@ def main():
 		# load model or create a new one if none specified
 		if not args.load_model:
 			model = create_nvidia_model()
+			model.optimizer.lr.assign(0.0001)
 			hist = {'loss':[], 'val_loss':[] , 'epochs':[], 'sources':[]}
 			print('New model based on nvidia compiled using mse loss and adam optimizer')
 			model.summary()
