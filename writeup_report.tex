@@ -4,7 +4,7 @@
 \author{Bastian Dittmar}
 \date{\today}
 \subject{Self Driving Car Nano Degree}
-\title{Traffic Sign Recognition Project}
+\title{Behavioral Cloning Project}
 
 \usepackage{graphicx}
 \usepackage[english]{babel}
@@ -20,7 +20,7 @@
      linkcolor    = blue
 }
 \usepackage{amsmath}
-
+\usepackage{listings}
 
 \usepackage[style=authoryear, citestyle=authoryear-icomp, giveninits=true, autolang=hyphen, hyperref=true, minbibnames=3, dashed=false, doi=false, isbn=false, url=false, sorting=nyt, backend=biber]{biblatex}
 \setlength{\bibitemsep}{0.5\baselineskip}
@@ -32,7 +32,8 @@
 
 
 \section{Introduction}
-In this project, deep neural networks and convolutional neural networks are used to classify traffic signs. Specifically, a model is trained to classify 43 traffic signs from the German Traffic Sign Dataset. First the data set is explored. Then the data is reprocessed and prepared as input to the model. After the neural network has been modeled, the training and the validation set are used to train the networks parameters. After a satisfyingly accuracy has been reached the performance is checked against the test set. At last, additional traffic sign images from the web are downloaded and classified by the neural network.
+In this project, an end-to-end network is designed using the keras framework and trained to output a steering angle based on an imput image. The input is what a car sees in frot of it using a virtual camera while driving down a given track. The steering angle output will be transmitted to the car and effects its direction directly.
+\parencite{LeNet, AlexNet, Yadav, NVidia}
 
 The goals / steps of this project are the following:
 \begin{itemize}
@@ -51,37 +52,52 @@ The goals / steps of this project are the following:
 My project includes the following files:
 \begin{itemize}
 \item model.py containing the script to create and train the model
-\item drive.py for driving the car in autonomous mode
+\item drive.py (unmodified) for driving the car in autonomous mode
 \item model.h5 containing a trained convolution neural network
-\item writeupreport or writeupreport summarizing the results
+\item test\_drive.mp4 showing the car driving around the track successfully
+\item writeup\_report.pdf summarizing the results
 \end{itemize}
 
 \subsection{Submission includes functional code}
 Using the Udacity provided simulator and my drive.py file, the car can be driven autonomously around the track by executing 
-$sh
-python drive.py model.h5
-$
+
+\begin{lstlisting}[language=bash]
+  $ sh python drive.py model.h5
+\end{lstlisting}
 
 \subsection{Submission code is usable and readable}
-The model.py file contains the code for training and saving the convolution neural network. The file shows the pipeline I used for training and validating the model, and it contains comments to explain how the code works.
+The model.py file contains the code for training and saving the convolution neural network. The file shows the pipeline I used for training and validating the model, and it contains comments to explain how the code works. The program executes different actions based on command line parameters. The basic modes are training a network, evaluating a set of images, plotting the accumulated training history and testing the data augmentation.
 
 \section{Model Architecture and Training Strategy}
 
 \subsection{An appropriate model architecture has been employed}
 
-My model consists of a convolution neural network with 3x3 filter sizes and depths between 32 and 128 (model.py lines 18-24) 
+My model is the based on the one used by \textcite{NVidia} from Nvidia, except for the input dimensions and a preprocessing layer. The layers are depicted in figure \ref{fig:network} (implementation in model.py lines 253-305).
 
-The model includes RELU layers to introduce nonlinearity (code line 20), and the data is normalized in the model using a Keras lambda layer (code line 18). 
+The first two layers are for preprocessing. At first a lambda layer scales and shifts the data from an interval of [0, 255] to [-1, +1]. The second layer crops the image remove the bottom 25 and the top 70 pixels. That basically cuts hoff the hood and the sky down to the horizon. At first I applied those two layers the other way around as it should be more efficient to crop first but the network converged worse on my first initial tests. That is wh I went back to this order and never tried again. In principal it should not make a difference regarding the accuracy.
+
+The 5 layers are convolutional layers. Three of them with a kernel size of $5x5$ and a stride of $2x2$ with a growing depth. The last two of the convolutional layers have a kernel size of $3x3$ and a stride of $1x1$. Each convolutional layer is followed by a relu activation to introduce non-linearity.
+
+Next the network is flattened and the data passed through four fully connected layers reducing the output to 100, 50, 10 and 1 where the last one is the output of the network and thus the steering angle to be learned.
+
+\begin{figure}
+  \centering
+    \includegraphics[width=0.5\textwidth]{images/cnn-architecture.png}
+    \caption{The network architecture used by \parencite{NVidia}}
+    \label{fig:network}
+\end{figure}
 
 \subsection{Attempts to reduce overfitting in the model}
 
-The model contains dropout layers in order to reduce overfitting (model.py lines 21). 
+The model itself does not contain any specific elements to prevent overfitting as I never ran into any indications of overfitting data.
 
-The model was trained and validated on different data sets to ensure that the model was not overfitting (code line 10-16). The model was tested by running it through the simulator and ensuring that the vehicle could stay on the track.
+The model was trained and validated on different data sets to ensure that the model was not overfitting. To gather two distinct sets the training data was split randomly (code line 358). The proportion of validation samples can be set via applicationparameter (--validation_size). For the whole training a factor of 0.2 was used. 
+
+The model was tested by running it through the simulator and ensuring that the vehicle could stay on the track.
 
 \subsection{Model parameter tuning}
 
-The model used an adam optimizer, so the learning rate was not tuned manually (model.py line 25).
+The model used an adam optimizer, so the learning rate was not tuned manually (model.py line 304). As a loss function mse was used. which is appropriate for an end-to-end network.
 
 \subsection{Appropriate training data}
 
